@@ -1,5 +1,8 @@
 """Module to tokenize email messages for spam filtering."""
 
+from collections import deque
+from itertools import chain
+from itertools import islice
 from urllib.parse import urlparse
 import math
 import re
@@ -747,3 +750,15 @@ for ch in " \t\r\n":
 del i, ch
 
 non_ascii_translate_tab = "".join(non_ascii_translate_tab)
+
+
+def add_sparse_bigrams(tokens, n=3):
+    window = deque(islice(tokens, n), maxlen=n)
+    push = window.append
+    for token in chain(tokens, [None] * (n - 1)):
+        first = window[0]
+        for ix in range(1, len(window)):
+            tok = window[ix]
+            if tok:
+                yield f"{first}{'_' * ix}{tok}"
+        push(token)
