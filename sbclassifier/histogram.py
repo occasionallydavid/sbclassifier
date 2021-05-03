@@ -1,17 +1,16 @@
-#! /usr/bin/env python
 import math
 
-from spambayes.Options import options
 
 class Hist:
     """Simple histograms of float values."""
 
-    # Pass None for lo and hi and it will automatically adjust to the min
-    # and max values seen.
-    # Note:  nbuckets can be passed for backward compatibility.  The
-    # display() method can be passed a different nbuckets value.
-    def __init__(self, nbuckets=options["TestDriver", "nbuckets"],
-                 lo=0.0, hi=100.0):
+    def __init__(self, nbuckets=200, lo=0.0, hi=100.0):
+        """
+        Pass None for lo and hi and it will automatically adjust to the min
+        and max values seen.
+        Note:  nbuckets can be passed for backward compatibility.  The
+        display() method can be passed a different nbuckets value.
+        """
         self.lo, self.hi = lo, hi
         self.nbuckets = nbuckets
         self.buckets = [0] * nbuckets
@@ -23,18 +22,20 @@ class Hist:
         self.data.append(x)
         self.stats_uptodate = False
 
-    # Compute, and set as instance attrs:
-    #     n         # of data points
-    # The rest are set iff n>0:
-    #     min       smallest value in collection
-    #     max       largest value in collection
-    #     median    midpoint
-    #     mean
-    #     pct       list of (percentile, score) pairs
-    #     var       variance
-    #     sdev      population standard deviation (sqrt(variance))
-    # self.data is also sorted.
-    def compute_stats(self):
+    def compute_stats(self, percentiles=(5, 25, 75, 95)):
+        """
+        Compute, and set as instance attrs:
+            n         # of data points
+        The rest are set iff n>0:
+            min       smallest value in collection
+            max       largest value in collection
+            median    midpoint
+            mean
+            pct       list of (percentile, score) pairs
+            var       variance
+            sdev      population standard deviation (sqrt(variance))
+        self.data is also sorted.
+        """
         if self.stats_uptodate:
             return
         self.stats_uptodate = True
@@ -48,7 +49,7 @@ class Hist:
         if n & 1:
             self.median = data[n // 2]
         else:
-            self.median = (data[n // 2] + data[(n-1) // 2]) / 2.0
+            self.median = (data[n // 2] + data[(n - 1) // 2]) / 2.0
         # Compute mean.
         # Add in increasing order of magnitude, to minimize roundoff error.
         if data[0] < 0.0:
@@ -64,16 +65,16 @@ class Hist:
         var = 0.0
         for x in data:
             d = x - mean
-            var += d*d
+            var += d * d
         self.var = var / n
         self.sdev = math.sqrt(self.var)
         # Compute percentiles.
         self.pct = pct = []
-        for p in options["TestDriver", "percentiles"]:
+        for p in percentiles:
             assert 0.0 <= p <= 100.0
             # In going from data index 0 to index n-1, we move n-1 times.
             # p% of that is (n-1)*p/100.
-            i = (n-1)*p/1e2
+            i = (n - 1) * p / 1e2
             if i < 0:
                 # Just return the smallest.
                 score = data[0]
@@ -81,7 +82,7 @@ class Hist:
                 whole = int(i)
                 frac = i - whole
                 score = data[whole]
-                if whole < n-1 and frac:
+                if whole < n - 1 and frac:
                     # Move frac of the way from this score to the next.
                     score += frac * (data[whole + 1] - score)
             pct.append((p, score))
@@ -140,12 +141,13 @@ class Hist:
         n = self.n
         if n == 0:
             return
-        print "%d items; mean %.2f; sdev %.2f" % (n, self.mean, self.sdev)
-        print "-> <stat> min %g; median %g; max %g" % (self.min,
-                                                       self.median,
-                                                       self.max)
-        pcts = ['%g%% %g' % x for x in self.pct]
-        print "-> <stat> percentiles:", '; '.join(pcts)
+        print("%d items; mean %.2f; sdev %.2f" % (n, self.mean, self.sdev))
+        print(
+            "-> <stat> min %g; median %g; max %g"
+            % (self.min, self.median, self.max)
+        )
+        pcts = ["%g%% %g" % x for x in self.pct]
+        print("-> <stat> percentiles:", "; ".join(pcts))
 
         lo, hi = self.get_lo_hi()
         if lo > hi:
@@ -158,26 +160,32 @@ class Hist:
         hunit, r = divmod(biggest, WIDTH)
         if r:
             hunit += 1
-        print "* =", hunit, "items"
+        print("* =", hunit, "items")
 
         # We need ndigits decimal digits to display the largest bucket count.
         ndigits = len(str(biggest))
 
         # Displaying the bucket boundaries is more troublesome.
         bucketwidth = self.get_bucketwidth()
-        whole_digits = max(len(str(int(lo))),
-                           len(str(int(hi - bucketwidth))))
+        whole_digits = max(len(str(int(lo))), len(str(int(hi - bucketwidth))))
         frac_digits = 0
         while bucketwidth < 1.0:
             # Incrementing by bucketwidth may not change the last displayed
             # digit, so display one more.
             frac_digits += 1
             bucketwidth *= 10.0
-        format = ("%" + str(whole_digits + 1 + frac_digits) + '.' +
-                  str(frac_digits) + 'f %' + str(ndigits) + "d")
+        format = (
+            "%"
+            + str(whole_digits + 1 + frac_digits)
+            + "."
+            + str(frac_digits)
+            + "f %"
+            + str(ndigits)
+            + "d"
+        )
 
         bucketwidth = self.get_bucketwidth()
         for i in range(nbuckets):
             n = self.buckets[i]
-            print format % (lo + i * bucketwidth, n),
-            print '*' * ((n + hunit - 1) // hunit)
+            print(format % (lo + i * bucketwidth, n), end="")
+            print("*" * ((n + hunit - 1) // hunit))
