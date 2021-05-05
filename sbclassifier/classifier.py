@@ -37,7 +37,7 @@ import sys
 import math as _math
 import random
 
-from sbclassifier.chi import chi2Q
+from sbclassifier.chi2 import chi2Q
 from sbclassifier.histogram import Hist
 
 
