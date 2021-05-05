@@ -4,7 +4,6 @@ from collections import deque
 from itertools import chain
 from itertools import islice
 from urllib.parse import urlparse
-import math
 import re
 
 

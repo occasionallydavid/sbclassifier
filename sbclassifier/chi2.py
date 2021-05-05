@@ -1,6 +1,7 @@
 import math as _math
 import random
 
+
 def chi2Q(x2, v, exp=_math.exp, min=min):
     """Return prob(chisq >= x2, with v degrees of freedom).
 

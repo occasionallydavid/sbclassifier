@@ -174,15 +174,7 @@ class Hist:
             # digit, so display one more.
             frac_digits += 1
             bucketwidth *= 10.0
-        format = (
-            "%"
-            + str(whole_digits + 1 + frac_digits)
-            + "."
-            + str(frac_digits)
-            + "f %"
-            + str(ndigits)
-            + "d"
-        )
+        format = f"%{whole_digits + 1 + frac_digits}.{frac_digits}f %{ndigits}d"
 
         bucketwidth = self.get_bucketwidth()
         for i in range(nbuckets):
