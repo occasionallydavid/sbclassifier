@@ -752,10 +752,12 @@ non_ascii_translate_tab = "".join(non_ascii_translate_tab)
 
 
 def add_sparse_bigrams(tokens, n=3):
+    tokens = iter(tokens)
     window = deque(islice(tokens, n), maxlen=n)
     push = window.append
     for token in chain(tokens, [None] * (n - 1)):
         first = window[0]
+        yield first
         for ix in range(1, len(window)):
             tok = window[ix]
             if tok:
