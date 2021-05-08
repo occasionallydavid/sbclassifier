@@ -664,10 +664,11 @@ def add_sparse_bigrams(tokens, n=3):
     tokens = iter(tokens)
     window = deque(islice(tokens, n), maxlen=n)
     push = window.append
+    windowsize = len(window)
     for token in chain(tokens, [None] * (n - 1)):
         first = window[0]
         yield first
-        for ix in range(1, len(window)):
+        for ix in range(1, windowsize):
             tok = window[ix]
             if tok:
                 yield f"{first}{'_' * ix}{tok}"
