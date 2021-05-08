@@ -5,6 +5,7 @@ from itertools import chain
 from itertools import islice
 from urllib.parse import urlparse
 import re
+import unicodedata
 
 
 skip_max_word_size = 12
@@ -575,14 +576,22 @@ skip_max_word_size = 12
 has_highbit_char = re.compile(r"[\x80-\xff]").search
 
 
-def tokenize_text(text, maxword=skip_max_word_size, replace_nonascii_chars=False):
-
-    # Normalize case.
-    text = text.lower()
+def tokenize_text(
+    text,
+    maxword=skip_max_word_size,
+    restrict_charset=None,
+    replace_nonascii_chars=False
+):
 
     if replace_nonascii_chars:
+        restrict_charset = "ascii"
+
+    # Normalize case and unicode form
+    text = unicodedata.normalize("NFKC", text.lower())
+
+    if restrict_charset:
         # Replace high-bit chars and control chars with '?'.
-        text = text.translate(non_ascii_translate_tab)
+        text = text.encode(restrict_charset, "replace").decode(restrict_charset)
 
     for w in text.split():
         n = len(w)
@@ -735,20 +744,6 @@ def tokenize_email(word):
 # lost  6 times
 #
 # total unique fn went from 168 to 169
-
-# For support of the replace_nonascii_chars option, build a string.translate
-# table that maps all high-bit chars and control chars to a '?' character.
-
-non_ascii_translate_tab = ["?"] * 256
-# leave blank up to (but not including) DEL alone
-for i in range(32, 127):
-    non_ascii_translate_tab[i] = chr(i)
-# leave "normal" whitespace alone
-for ch in " \t\r\n":
-    non_ascii_translate_tab[ord(ch)] = ch
-del i, ch
-
-non_ascii_translate_tab = "".join(non_ascii_translate_tab)
 
 
 def add_sparse_bigrams(tokens, n=3):
