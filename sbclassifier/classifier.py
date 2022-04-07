@@ -157,13 +157,6 @@ class Classifier:
         """
         self._remove_msg(wordstream, is_spam)
 
-    def clear(self):
-        """
-        Reset the training database
-        """
-        self.db.clear()
-        self.probcache.clear()
-
     def probability(self, record):
         """Compute, store, and return prob(msg is spam | msg contains word).
 
