@@ -108,7 +108,7 @@ class SqliteStore(BaseStore):
             w: row
             for w in tokens
             for row in self.db.execute(
-                "SELECT spam, ham "
+                "SELECT max(0, spam), max(0, ham)"
                 "FROM tokens "
                 "WHERE token = ?",
                 (w,)
