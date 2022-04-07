@@ -1,11 +1,13 @@
 from sbclassifier.classifier import Classifier
-from sbclassifier.classifier import ClassifierDb
+from sbclassifier.store import HeapStore
+from sbclassifier.store import SqliteStore
 from sbclassifier.tokenizer import tokenize_text
 from sbclassifier.tokenizer import tokenize_email
 
 
 __all__ = [
-    "ClassifierDb",
+    "HeapStore",
+    "SqliteStore",
     "Classifier",
     "tokenize_text",
     "tokenize_email",
