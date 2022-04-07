@@ -148,14 +148,78 @@ class Classifier:
         True, you're telling the classifier this message is definitely spam,
         else that it's definitely not spam.
         """
-        self._add_msg(wordstream, is_spam)
+        # NOTE:  Graham's scheme had a strange asymmetry:  when a word appeared
+        # n>1 times in a single message, training added n to the word's hamcount
+        # or spamcount, but predicting scored words only once.  Tests showed
+        # that adding only 1 in training, or scoring more than once when
+        # predicting, hurt under the Graham scheme.
+        # This isn't so under Robinson's scheme, though:  results improve
+        # if training also counts a word only once.  The mean ham score decreases
+        # significantly and consistently, ham score variance decreases likewise,
+        # mean spam score decreases (but less than mean ham score, so the spread
+        # increases), and spam score variance increases.
+        # I (Tim) speculate that adding n times under the Graham scheme helped
+        # because it acted against the various ham biases, giving frequently
+        # repeated spam words (like "Viagra") a quick ramp-up in spamprob; else,
+        # adding only once in training, a word like that was simply ignored until
+        # it appeared in 5 distinct training spams.  Without the ham-favoring
+        # biases, though, and never ignoring words, counting n times introduces
+        # a subtle and unhelpful bias.
+        # There does appear to be some useful info in how many times a word
+        # appears in a msg, but distorting spamprob doesn't appear a correct way
+        # to exploit it.
+        self.probcache = {}  # nuke the prob cache
+        if is_spam:
+            self.db.nspam += 1
+        else:
+            self.db.nham += 1
+
+        for word in set(wordstream):
+            try:
+                record = self.db[word]
+            except KeyError:
+                record = WordInfo()
+
+            if is_spam:
+                record.spamcount += 1
+            else:
+                record.hamcount += 1
+
+            self.db[word] = record
+
+        self._post_training()
 
     def unlearn(self, wordstream, is_spam):
         """In case of pilot error, call unlearn ASAP after screwing up.
 
         Pass the same arguments you passed to learn().
         """
-        self._remove_msg(wordstream, is_spam)
+        self.probcache = {}  # nuke the prob cache
+        if is_spam:
+            if self.db.nspam <= 0:
+                raise ValueError("spam count would go negative!")
+            self.db.nspam -= 1
+        else:
+            if self.db.nham <= 0:
+                raise ValueError("non-spam count would go negative!")
+            self.db.nham -= 1
+
+        wordinfoget = self.db.get
+        for word in set(wordstream):
+            record = wordinfoget(word)
+            if record is not None:
+                if is_spam:
+                    if record.spamcount > 0:
+                        record.spamcount -= 1
+                else:
+                    if record.hamcount > 0:
+                        record.hamcount -= 1
+                if record.hamcount == 0 == record.spamcount:
+                    del self.db[word]
+                else:
+                    self.db[word] = record
+
+        self._post_training()
 
     def probability(self, record):
         """Compute, store, and return prob(msg is spam | msg contains word).
@@ -216,76 +280,6 @@ class Classifier:
             self.probcache[spamcount] = {hamcount: prob}
 
         return prob
-
-    # NOTE:  Graham's scheme had a strange asymmetry:  when a word appeared
-    # n>1 times in a single message, training added n to the word's hamcount
-    # or spamcount, but predicting scored words only once.  Tests showed
-    # that adding only 1 in training, or scoring more than once when
-    # predicting, hurt under the Graham scheme.
-    # This isn't so under Robinson's scheme, though:  results improve
-    # if training also counts a word only once.  The mean ham score decreases
-    # significantly and consistently, ham score variance decreases likewise,
-    # mean spam score decreases (but less than mean ham score, so the spread
-    # increases), and spam score variance increases.
-    # I (Tim) speculate that adding n times under the Graham scheme helped
-    # because it acted against the various ham biases, giving frequently
-    # repeated spam words (like "Viagra") a quick ramp-up in spamprob; else,
-    # adding only once in training, a word like that was simply ignored until
-    # it appeared in 5 distinct training spams.  Without the ham-favoring
-    # biases, though, and never ignoring words, counting n times introduces
-    # a subtle and unhelpful bias.
-    # There does appear to be some useful info in how many times a word
-    # appears in a msg, but distorting spamprob doesn't appear a correct way
-    # to exploit it.
-    def _add_msg(self, wordstream, is_spam):
-        self.probcache = {}  # nuke the prob cache
-        if is_spam:
-            self.db.nspam += 1
-        else:
-            self.db.nham += 1
-
-        for word in set(wordstream):
-            try:
-                record = self.db[word]
-            except KeyError:
-                record = WordInfo()
-
-            if is_spam:
-                record.spamcount += 1
-            else:
-                record.hamcount += 1
-
-            self.db[word] = record
-
-        self._post_training()
-
-    def _remove_msg(self, wordstream, is_spam):
-        self.probcache = {}  # nuke the prob cache
-        if is_spam:
-            if self.db.nspam <= 0:
-                raise ValueError("spam count would go negative!")
-            self.db.nspam -= 1
-        else:
-            if self.db.nham <= 0:
-                raise ValueError("non-spam count would go negative!")
-            self.db.nham -= 1
-
-        wordinfoget = self.db.get
-        for word in set(wordstream):
-            record = wordinfoget(word)
-            if record is not None:
-                if is_spam:
-                    if record.spamcount > 0:
-                        record.spamcount -= 1
-                else:
-                    if record.hamcount > 0:
-                        record.hamcount -= 1
-                if record.hamcount == 0 == record.spamcount:
-                    del self.db[word]
-                else:
-                    self.db[word] = record
-
-        self._post_training()
 
     def _post_training(self):
         """This is called after training on a wordstream.  Subclasses might
