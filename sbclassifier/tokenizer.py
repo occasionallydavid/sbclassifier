@@ -1,13 +1,15 @@
 """Module to tokenize email messages for spam filtering."""
 
-from collections import deque
-from itertools import chain
-from itertools import islice
-from urllib.parse import urlparse
+import collections
+import itertools
 import re
 import unicodedata
+import urllib.parse
+
+import publicsuffixlist
 
 
+psl = publicsuffixlist.PublicSuffixList()
 skip_max_word_size = 12
 
 
@@ -576,42 +578,130 @@ skip_max_word_size = 12
 has_highbit_char = re.compile(r"[\x80-\xff]").search
 
 
-def tokenize_text(
-    text,
-    maxword=skip_max_word_size,
-    restrict_charset=None,
-    replace_nonascii_chars=False
-):
-
-    if replace_nonascii_chars:
-        restrict_charset = "ascii"
-
-    # Normalize case and unicode form
-    text = unicodedata.normalize("NFKC", text.lower())
-
-    if restrict_charset:
-        # Replace high-bit chars and control chars with '?'.
-        text = text.encode(restrict_charset, "replace").decode(restrict_charset)
-
-    for w in text.split():
-        n = len(w)
-        if n >= 3:
-            # Make sure this range matches in tokenize_word().
-            if n <= maxword:
-                yield w
-
-            else:
-                yield from tokenize_word(w, maxword=maxword)
+#
+# CJK support.
+#
 
 
-def tokenize_word(word, _len=len, maxword=skip_max_word_size, generate_long_skips=True):
-    n = _len(word)
+# https://en.wikipedia.org/wiki/Bopomofo#Unicode
+# https://en.wikipedia.org/wiki/CJK_Unified_Ideographs
+# https://en.wikipedia.org/wiki/Hangul#Unicode
+# https://en.wikipedia.org/wiki/Hiragana#Unicode
+# https://en.wikipedia.org/wiki/Kana#In_Unicode
+# https://en.wikipedia.org/wiki/Katakana#Unicode
+# https://en.wikipedia.org/wiki/N%C3%BCshu#In_Unicode
+CJK_RANGES = [
+    (0x01100, 0x011ff), # Hangul Jamo
+    (0x02e80, 0x02eff), # CJK Radicals Supplement
+    (0x03000, 0x0303f), # CJK Symbols and Punctuation ??
+    (0x03040, 0x0309f), # Hiragana
+    (0x030a0, 0x030ff), # Katakana
+    (0x03100, 0x0312f), # Bopomofo
+    (0x03130, 0x0318f), # Hangul Compatibility Jamo
+    (0x031f0, 0x031ff), # Katakana Phonetic Extensions
+    (0x03200, 0x032ff), # Enclosed CJK Letters and Months
+    (0x03300, 0x033ff), # CJK Compatibility
+    (0x03400, 0x04dbf), # CJK Unified Ideographs Extension A
+    (0x04e00, 0x09fff), # CJK Unified Ideographs
+    (0x0a960, 0x0a97f), # Hangul Jamo Extended-A
+    (0x0ac00, 0x0d7af), # Hangul Syllables
+    (0x0d7b0, 0x0d7ff), # Hangul Jamo Extended-B
+    (0x0f900, 0x0faff), # CJK Compatibility Ideographs
+    (0x0fe30, 0x0fe4f), # CJK Compatibility Forms
+    (0x0ff61, 0x0ff9f), # Halfwidth and Fullwidth Forms (Katakana)
+    (0x0ffa0, 0x0ffdc), # Halfwidth and Fullwidth Forms (Hangul)
+    (0x1aff0, 0x1afff), # Kana Extended-B
+    (0x1b000, 0x1b0ff), # Kana Supplement
+    (0x1b100, 0x1b12f), # Kana Extended-A
+    (0x1b130, 0x1b16f), # Small Kana Extension
+    (0x1b170, 0x1b2ff), # Nüshu
+    (0x1f200, 0x1f2ff), # Enclosed Ideographic Supplement
+    (0x20000, 0x2a6df), # CJK Unified Ideographs Extension B
+    (0x2a700, 0x2b73f), # CJK Unified Ideographs Extension C
+    (0x2b740, 0x2b81f), # CJK Unified Ideographs Extension D
+    (0x2b820, 0x2ceaf), # CJK Unified Ideographs Extension E
+    (0x2ceb0, 0x2ebef), # CJK Unified Ideographs Extension F
+    (0x2f800, 0x2fa1f), # CJK Compatibility Ideographs Supplement
+    (0x30000, 0x3134f), # CJK Unified Ideographs Extension G
+]
+
+
+CJK_RE = re.compile(
+    '[%s]+' % (
+        ''.join(
+            '%c-%c' % (from_, to_)
+            for from_, to_ in CJK_RANGES
+        )
+    )
+)
+
+
+def cjk_segments(s):
+    start = 0
+    while start < len(s):
+        m = CJK_RE.search(s, start)
+        if m:
+            if m.start():
+                yield False, s[start:m.start()]
+            yield True, s[m.start():m.end()]
+            start = m.end()
+        else:
+            yield False, s[start:]
+            start = len(s)
+
+
+#
+# Whitespace normalization stolen from Textacy.
+#
+
+
+RE_LINEBREAK = re.compile(r"(\r\n|[\n\v])+")
+RE_NONBREAKING_SPACE = re.compile(r"[^\S\n\v]+")
+RE_ZWSP = re.compile(r"[\u200B\u2060\uFEFF]+")
+
+
+def whitespace(text):
+    """
+    Replace all contiguous zero-width spaces with an empty string,
+    line-breaking spaces with a single newline, and non-breaking spaces with a
+    single space, then strip any leading/trailing whitespace.
+    """
+    text = RE_ZWSP.sub("", text)
+    text = RE_LINEBREAK.sub(r"\n", text)
+    text = RE_NONBREAKING_SPACE.sub(" ", text)
+    return text.strip()
+
+
+#
+# Tokenizer.
+#
+
+def tokenize_text(text):
+    for cjk, seg in cjk_segments(
+        unicodedata.normalize("NFKC", whitespace(text))
+    ):
+        if cjk:
+            yield from seg
+        else:
+            for w in seg.split():
+                n = len(w)
+                if n >= 3:
+                    # Make sure this range matches in tokenize_word().
+                    if n <= skip_max_word_size:
+                        yield w
+
+                    else:
+                        yield from tokenize_word(w)
+
+
+def tokenize_word(word, generate_long_skips=True):
+    n = len(word)
 
     if n < 3:
         return
 
     # Make sure this range matches in tokenize().
-    if n <= maxword:
+    if n <= skip_max_word_size:
         yield word
 
     else:
@@ -621,10 +711,8 @@ def tokenize_word(word, _len=len, maxword=skip_max_word_size, generate_long_skip
         # An earlier scheme also split up the y in x@y on '.'.  Not splitting
         # improved the f-n rate; the f-p rate didn't care either way.
         if "://" in word:
-            yield "url:1"
             yield from tokenize_url(word)
         if "." in word and word.count("@") == 1:
-            yield "email:1"
             yield from tokenize_email(word)
         else:
             # There's value in generating a token indicating roughly how
@@ -642,30 +730,45 @@ def tokenize_word(word, _len=len, maxword=skip_max_word_size, generate_long_skip
                 yield "8bit%%:%d" % round(hicount * 100.0 / len(word))
 
 
+def _suffix(kind, domain):
+    suffix = psl.privatesuffix(domain)
+    if suffix:
+        yield kind + 'domain:' + suffix
+
+    suffix = psl.publicsuffix(domain)
+    if suffix:
+        yield kind + 'tld:' + suffix
+
+
 def tokenize_url(word):
+    yield "url:1"
+
     try:
-        domain = ".".join(urlparse(word).netloc.split(".")[:-2])
+        parsed = urllib.parse.urlparse(word)
     except ValueError:
         yield "url:invalid"
-    else:
-        yield f"url:{domain}"
+
+    yield from _suffix('url', parsed.netloc)
 
 
 def tokenize_email(word):
+    yield "email:1"
+
     try:
-        p1, p2 = word.split("@")
-        yield f"email name:{p1}"
-        yield f"email addr:{p2}"
+        mailbox, domain = word.split("@")
     except ValueError:
-        yield f"email:{word}"
+        yield f"eml:{word}"
+
+    yield f"emluser:{mailbox}"
+    yield from _suffix('eml', domain)
 
 
 def add_sparse_bigrams(tokens, n=3):
     tokens = iter(tokens)
-    window = deque(islice(tokens, n), maxlen=n)
+    window = collections.deque(itertools.islice(tokens, n), maxlen=n)
     push = window.append
     windowsize = len(window)
-    for token in chain(tokens, [None] * (n - 1)):
+    for token in itertools.chain(tokens, [None] * (n - 1)):
         first = window[0]
         yield first
         for ix in range(1, windowsize):
